@@ -1,59 +1,28 @@
-# YouTube Video Summarizer
+import os
+import subprocess
+import whisper
+import ssl
+import urllib.request
+import imageio_ffmpeg as ffmpeg
+import re
+import time
+import yt_dlp
+import sys
+import streamlit as st
+from fpdf import FPDF
+import requests
+import asyncio
 
-This Python project provides a Streamlit-based application that processes YouTube videos to extract audio, transcribe it into text using OpenAI Whisper, and summarize the content into a concise format. It supports generating PDF files for the transcription and summary.
-
-## Features
-
-1. **Convert YouTube Shorts URLs:** Converts YouTube Shorts URLs to standard video URLs.
-2. **Audio Download:** Downloads audio from YouTube videos using `yt-dlp`.
-3. **Audio Transcription:** Transcribes audio to text using OpenAI Whisper.
-4. **PDF Creation:** Converts transcribed text and summaries into PDF files.
-5. **Summarization:** Summarizes transcribed content using a local summarization API.
-6. **Streamlit Interface:** User-friendly interface for providing YouTube URLs and downloading summaries.
-
-## Requirements
-
-### Python Libraries
-- `os`
-- `subprocess`
-- `whisper`
-- `ssl`
-- `urllib`
-- `imageio_ffmpeg`
-- `re`
-- `time`
-- `yt_dlp`
-- `sys`
-- `streamlit`
-- `fpdf`
-- `requests`
-- `asyncio`
-
-### External Tools
-- **FFmpeg**: Required for audio processing.
-- **OpenAI Whisper**: For transcription.
-
-## Code Explanation (Line-by-Line)
-
-### Base URL for Summarization
-```python
+# Base URL for summarizing
 base_url = "http://127.0.0.1:8001"
-```
-Defines the base URL for the local summarization API, which handles ingestion and summarization requests for PDF files.
 
-### Convert YouTube Shorts URL
-```python
+# Function to convert YouTube Shorts URL to standard URL
 def convert_shorts_url(url):
     if "youtube.com/shorts/" in url:
         return re.sub(r"/shorts/", "/watch?v=", url)
     return url
-```
-- Checks if the URL contains the string `/shorts/`.
-- If true, replaces `/shorts/` with `/watch?v=` to standardize the URL for processing.
-- Returns the modified or original URL.
 
-### Download Audio
-```python
+# Function to download audio from YouTube with yt-dlp
 def download_audio(youtube_url, output_path="audio.mp3"):
     try:
         print("Attempting to download audio from YouTube using yt-dlp...")
@@ -77,32 +46,21 @@ def download_audio(youtube_url, output_path="audio.mp3"):
     except Exception as e:
         print(f"An error occurred while downloading audio: {e}")
         return False
-```
-- Uses `yt-dlp` to extract audio from the provided YouTube URL.
-- Configures FFmpeg to convert audio to MP3 format with 192 kbps quality.
-- Removes any existing audio file with the same name before downloading.
-- Returns `True` if successful, otherwise logs the error.
 
-### Get Video Title
-```python
+# Function to retrieve YouTube video title
 def get_video_title(youtube_url):
     try:
         ydl_opts = {'quiet': True, 'skip_download': True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(youtube_url, download=False)
             title = info.get("title", "summary")
-            print(f"Fetched video title: {title}")
+            print(f"Fetched video title: {title}")  # Debug log
             return title
     except Exception as e:
         print(f"An error occurred while retrieving video title: {e}")
         return "summary"
-```
-- Uses `yt-dlp` to fetch metadata for the provided YouTube URL.
-- Extracts the title of the video, which is used to name the generated PDF files.
-- Returns the title or a default string `"summary"` if an error occurs.
 
-### Transcribe Audio
-```python
+# Function to transcribe audio using whisper
 def transcribe_audio(audio_path):
     try:
         print("Attempting to transcribe audio using Whisper...")
@@ -122,13 +80,8 @@ def transcribe_audio(audio_path):
     except Exception as e:
         print(f"An error occurred during transcription: {e}")
         return None
-```
-- Uses FFmpeg to convert the audio file to WAV format, required by Whisper.
-- Loads a base Whisper model to transcribe the WAV file into text.
-- Returns the transcription or logs an error if the process fails.
 
-### Create PDF
-```python
+# Function to create a PDF from transcribed text
 def create_pdf(transcription, pdf_path, youtube_url):
     pdf = FPDF()
     pdf.add_page()
@@ -138,13 +91,8 @@ def create_pdf(transcription, pdf_path, youtube_url):
         os.makedirs(os.path.dirname(pdf_path))
     pdf.output(pdf_path)
     print(f"PDF created at {pdf_path}")
-```
-- Creates a PDF with the provided transcription and the YouTube URL.
-- Uses `FPDF` for layout and text rendering.
-- Saves the PDF in the specified path, creating directories if needed.
 
-### Summarize PDF
-```python
+# Function to summarize the PDF
 def summarize_pdf(pdf_path):
     print(f"Starting summarization for {pdf_path}")
     ingest_url = f"{base_url}/v1/ingest/file"
@@ -162,7 +110,11 @@ def summarize_pdf(pdf_path):
     payload = {
         "text": "string",
         "use_context": True,
-        "prompt": ("Provide a comprehensive summary of the provided context information. The summary should cover all key points."),
+        "prompt": ("Provide a comprehensive summary of the provided context information. "
+                   "The summary should cover all the key points and main ideas presented in the original text, "
+                   "while also condensing the information into a concise and easy-to-understand format. "
+                   "Please ensure that the summary includes relevant details and examples that support the main ideas, "
+                   "while avoiding any unnecessary information or repetition. Don't include any first line as heading."),
         "stream": False
     }
 
@@ -175,13 +127,8 @@ def summarize_pdf(pdf_path):
     except requests.exceptions.RequestException as e:
         print(f"Error during summarization: {e}")
         return None
-```
-- Ingests the PDF into the summarization API.
-- Sends a request with the summarization prompt and retrieves the summary as JSON.
-- Logs and returns the summary, or logs an error if the process fails.
 
-### Delete Ingested Document
-```python
+# Function to delete the ingested PDF
 def delete_ingested_document(pdf_name):
     list_url = f"{base_url}/v1/ingest/list"
     list_response = requests.get(list_url)
@@ -204,13 +151,8 @@ def delete_ingested_document(pdf_name):
                 print(f"Failed to delete document with doc_id {doc_id}: {delete_response.status_code}")
     else:
         print(f"Failed to fetch document list: {list_response.status_code}")
-```
-- Lists all ingested documents via the API.
-- Matches and deletes the specified PDF using its `doc_id`.
-- Logs success or failure messages for each deletion request.
 
-### Streamlit App
-```python
+# Streamlit app to summarize YouTube videos
 def main():
     st.title("YouTube Video Summarizer 🎥")
     st.markdown('<style>h1{color: orange; text-align: center;}</style>', unsafe_allow_html=True)
@@ -225,7 +167,7 @@ def main():
         start_time = time.time()
         youtube_url = convert_shorts_url(youtube_url)
         video_title = get_video_title(youtube_url)
-        print(f"Debug: Video title is '{video_title}'")
+        print(f"Debug: Video title is '{video_title}'")  # Debug log
 
         audio_output_path = "youtube_audio.mp3"
         if download_audio(youtube_url, audio_output_path):
@@ -258,46 +200,12 @@ def main():
                                     on_click=None
                                 )
 
+                    # Delete the ingested document after summarization
                     delete_ingested_document(os.path.basename(pdf_path))
 
         end_time = time.time()
         elapsed_time = end_time - start_time
         st.write(f"Time taken: {elapsed_time:.2f} seconds")
-```
-- Implements the Streamlit-based user interface.
-- Allows users to input a YouTube URL and trigger the summarization pipeline.
-- Displays the video and its summary side by side.
-- Provides a download button for the summary PDF.
 
-## How to Run
-
-1. Clone the repository.
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Start the Streamlit app:
-   ```bash
-   streamlit run app.py
-   ```
-4. Access the app in your browser at `http://localhost:8501`.
-
-## Folder Structure
-- **audio.mp3**: Temporary audio file.
-- **youtube_audio.wav**: Temporary WAV file for transcription.
-- **pdf/**: Stores generated PDFs.
-
-## Troubleshooting
-
-- Ensure FFmpeg is installed and accessible.
-- Check if the local summarization API is running.
-- Verify internet connection for YouTube video processing.
-
-## Future Enhancements
-
-- Add support for multiple languages in transcription and summarization.
-- Integrate cloud-based summarization APIs for broader use cases.
-- Enhance UI with more user controls and feedback.
-
-## License
-MIT License
+if __name__ == "__main__":
+    main()
